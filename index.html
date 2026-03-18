@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>財務諸表論 理論大学</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+
+<div id="start-screen" class="container text-center fade-in">
+    <div class="hero-section">
+        <div class="hero-icon">📖</div>
+        <h1 class="gradient-text">財務諸表論 理論大学</h1>
+        <p class="hero-subtitle">税理士試験 頻出理論・ハイブリッド対策アプリ</p>
+        <div class="stats-badge" id="total-q-badge">収録問題数: --問</div>
+    </div>
+    <div id="loading-message" class="loading-text">問題データを読み込み中...</div>
+    <div id="type-container" style="display: none;">
+        <h3 class="section-title">学習モードを選択</h3>
+        <div id="type-buttons" class="type-grid"></div>
+    </div>
+</div>
+
+<div id="category-screen" class="container text-center fade-in" style="display: none;">
+    <div class="header-title">
+        <h1 id="selected-type-title" class="gradient-text" style="font-size: 24px;">学習対策</h1>
+    </div>
+    
+    <div style="margin-bottom: 25px; display: flex; justify-content: center;">
+        <div style="background: #fffbeb; padding: 15px; border-radius: 10px; border: 1px solid #fde68a; width: 100%; max-width: 400px; text-align: left; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+            <label style="cursor: pointer; font-weight: bold; color: #b45309; font-size: 15px; display: flex; align-items: center;">
+                <input type="checkbox" id="high-star-checkbox" style="transform: scale(1.3); margin-right: 10px;"> ⭐ 重要度が高い問題(★4以上)に絞る
+            </label>
+        </div>
+    </div>
+
+    <h3 class="section-title">学習するカテゴリーを選択</h3>
+    <div id="category-buttons" class="category-grid"></div>
+    <button class="btn-outline" style="margin-top: 30px;" onclick="backToTypeSelect()">◀ モード選択へ戻る</button>
+</div>
+
+<div id="quiz-screen" class="container fade-in" style="display: none;">
+    <div class="progress-container"><div id="progress-bar" class="progress-bar"></div></div>
+    <div class="quiz-header">
+        <span id="current-category-badge" class="badge">カテゴリー名</span>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span id="question-star-display" style="color: #f59e0b; font-size: 15px; letter-spacing: 2px;">★★★★★</span>
+            <span id="progress-text" class="progress-text">1 / 5 問目</span>
+        </div>
+    </div>
+    
+    <h3 id="question-title" class="q-title"></h3>
+    <div class="q-box"><p id="question-text" class="q-text"></p></div>
+    
+    <div id="fill-in-area">
+        <div class="action-area" style="display: flex; gap: 10px;">
+            <button id="check-btn" class="btn-primary" onclick="checkFillInAnswers()">答え合わせ</button>
+            <button id="show-fill-in-answer-btn" class="btn-secondary" style="flex: 1;" onclick="showFillInAnswer()">解答を見る</button>
+        </div>
+        <p id="result-message" class="result-msg"></p>
+        <div id="fill-in-answer-box" class="a-box" style="display: none; margin-top: 20px;">
+            <span class="a-label">解答・解説</span>
+            <p id="fill-in-answer-text" class="a-text"></p>
+        </div>
+    </div>
+
+    <div id="desc-area" style="display: none; margin-bottom: 15px;">
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px; text-align: left;">解答メモ（入力しなくても答え合わせは可能です）</p>
+        <textarea id="desc-input-area" rows="4" placeholder="ここに解答をタイプしてください..."></textarea>
+    </div>
+
+    <div id="self-grade-action" class="action-area" style="display: none;">
+        <button id="show-answer-btn" class="btn-primary" onclick="showAnswer()">解答・解説を見る</button>
+    </div>
+    
+    <div id="self-grade-area" style="display: none;">
+        <div class="a-box">
+            <span class="a-label">解答・解説</span>
+            <p id="answer-text" class="a-text"></p>
+        </div>
+        <div class="self-grade-box">
+            <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 10px; text-align: center;">自己採点してください</p>
+            <div class="grade-buttons">
+                <button class="btn-incorrect" onclick="gradeAnswer(false)">❌ 不正解</button>
+                <button class="btn-correct" onclick="gradeAnswer(true)">⭕️ 正解した！</button>
+            </div>
+        </div>
+    </div>
+    
+    <hr class="divider">
+    <div class="nav-buttons">
+        <button id="prev-btn" class="btn-secondary" onclick="prevQuestion()">◀ 前へ</button>
+        <button class="btn-outline" onclick="backToCategorySelect()">一覧へ戻る</button>
+        <button id="next-btn" class="btn-secondary" onclick="nextQuestion()">次へ ▶</button>
+    </div>
+    <div id="question-source-display" class="question-source-id">基準名 | Q-000</div>
+</div>
+
+<div id="result-screen" class="container text-center fade-in" style="display: none;">
+    <h2>学習完了！お疲れ様でした！</h2>
+    <div class="score-box">
+        <p>今回の獲得スコア</p>
+        <h1 id="score-display" style="color: var(--primary); font-size: 48px; margin: 5px 0;">0 / 0</h1>
+        <h3 id="accuracy-display" style="color: var(--text-main); margin: 0;">正答率: 0%</h3>
+    </div>
+    <button class="btn-primary" style="margin-top: 30px;" onclick="backToCategorySelect()">トップへ戻る</button>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
