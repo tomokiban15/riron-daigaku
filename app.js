@@ -7,6 +7,91 @@ window.onerror = function(msg, url, lineNo) {
     return false;
 };
 
+let timerInterval = null;
+let elapsedSeconds = 0;
+
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
+function startTimer() {
+    clearInterval(timerInterval);
+    elapsedSeconds = 0;
+    document.getElementById('timer-display').textContent = `⏱ 00:00`;
+    timerInterval = setInterval(() => {
+        elapsedSeconds++;
+        document.getElementById('timer-display').textContent = `⏱ ${formatTime(elapsedSeconds)}`;
+    }, 1000);
+}
+
+function stopTimer() {
+    clearInterval(timerInterval);
+}
+
+function loadData() {
+    let wrongIds = JSON.parse(localStorage.getItem('riron_wrong_ids')) || [];
+    let theme = localStorage.getItem('riron_theme') || 'light';
+    let todayStr = new Date().toLocaleDateString();
+    let savedDate = localStorage.getItem('riron_date') || '';
+    let streak = parseInt(localStorage.getItem('riron_streak') || '0');
+    let todayCount = parseInt(localStorage.getItem('riron_today_count') || '0');
+
+    if (savedDate !== todayStr) {
+        let yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (savedDate === yesterday.toLocaleDateString()) {
+            streak += 1; 
+        } else if (savedDate === '') {
+            streak = 1; 
+        } else {
+            streak = 1; 
+        }
+        todayCount = 0;
+        localStorage.setItem('riron_date', todayStr);
+        localStorage.setItem('riron_streak', streak);
+        localStorage.setItem('riron_today_count', todayCount);
+    }
+
+    if (theme === 'dark') {
+        document.body.classList.add('dark-mode');
+        document.getElementById('theme-toggle-btn').textContent = "☀️ ライトモード";
+    }
+
+    document.getElementById('streak-days').textContent = streak;
+    document.getElementById('today-q-count').textContent = todayCount;
+
+    return wrongIds;
+}
+
+function saveWrongId(id) {
+    let wrongIds = JSON.parse(localStorage.getItem('riron_wrong_ids')) || [];
+    if (!wrongIds.includes(id)) {
+        wrongIds.push(id);
+        localStorage.setItem('riron_wrong_ids', JSON.stringify(wrongIds));
+    }
+}
+
+function removeWrongId(id) {
+    let wrongIds = JSON.parse(localStorage.getItem('riron_wrong_ids')) || [];
+    wrongIds = wrongIds.filter(wrongId => wrongId !== id);
+    localStorage.setItem('riron_wrong_ids', JSON.stringify(wrongIds));
+}
+
+function addTodayCount() {
+    let todayCount = parseInt(localStorage.getItem('riron_today_count') || '0');
+    todayCount++;
+    localStorage.setItem('riron_today_count', todayCount);
+    document.getElementById('today-q-count').textContent = todayCount;
+}
+
+function toggleTheme() {
+    const isDark = document.body.classList.toggle('dark-mode');
+    localStorage.setItem('riron_theme', isDark ? 'dark' : 'light');
+    document.getElementById('theme-toggle-btn').textContent = isDark ? "☀️ ライトモード" : "🌙 ダークモード";
+}
+
 let allQuestions = [];
 let typeFilteredQuestions = [];  
 let finalQuestions = [];         
@@ -14,36 +99,35 @@ let currentType = "";
 let currentIndex = 0;
 let correctCount = 0;
 let totalPossibleScore = 0;
+let isReviewMode = false;
 
-// ★追加：出題確率を重要度でコントロールする（加重ランダム抽選）
+function shuffleArray(array) {
+    let cloneArray = [...array];
+    for (let i = cloneArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cloneArray[i], cloneArray[j]] = [cloneArray[j], cloneArray[i]];
+    }
+    return cloneArray;
+}
+
 function pickWeightedRandom(questions, count) {
     if (questions.length === 0) return [];
     let pool = [];
-    
     questions.forEach(q => {
-        // 重要度に応じて抽選箱に入れるチケットの枚数を変える（★5は★1の10倍出やすい）
         let tickets = 1;
         if (q.star === 5) tickets = 10;
         else if (q.star === 4) tickets = 6;
         else if (q.star === 3) tickets = 3;
         else if (q.star === 2) tickets = 1;
-        
-        for (let i = 0; i < tickets; i++) {
-            pool.push(q);
-        }
+        for (let i = 0; i < tickets; i++) { pool.push(q); }
     });
-    
     let selected = [];
     let maxPossible = new Set(questions).size; 
     let targetCount = Math.min(count, maxPossible);
-
     while (selected.length < targetCount) {
         let randomIndex = Math.floor(Math.random() * pool.length);
         let chosen = pool[randomIndex];
-        // まだ選ばれていない問題なら追加する
-        if (!selected.includes(chosen)) {
-            selected.push(chosen);
-        }
+        if (!selected.includes(chosen)) { selected.push(chosen); }
     }
     return selected;
 }
@@ -59,8 +143,9 @@ function calculateTotalScore() {
     });
 }
 
-// 1. CSVデータの読み込み
 async function loadQuestions() {
+    loadData(); 
+
     try {
         const response = await fetch('questions.csv');
         const csvText = await response.text();
@@ -84,9 +169,10 @@ async function loadQuestions() {
                         let rawQuestion = row.Question || row.question || row['Question\r'] || "";
                         let questionText = rawQuestion.trim() !== "" ? rawQuestion : title;
                         let answerText = row.Answerstext || row.AnswerText || row.Answer || ""; 
-                        let questionId = row['問題コード'] || row['コード'] || row.id || row['ID'] || `Q-${String(index + 1).padStart(3, '0')}`;
                         
-                        // ★追加：重要度(Star)の読み込み
+                        answerText = answerText.replace(/\[\[(.*?)\]\]/g, '<span class="highlight-word">$1</span>');
+
+                        let questionId = row['問題コード'] || row['コード'] || row.id || row['ID'] || `Q-${String(index + 1).padStart(3, '0')}`;
                         let rawStar = row['Star'] || row['star'] || row['重要度'] || "3";
                         let starVal = Number(rawStar);
                         if (isNaN(starVal) || starVal < 1) starVal = 1;
@@ -102,7 +188,7 @@ async function loadQuestions() {
                             questionText: questionText,
                             answers: answers,
                             answerText: answerText,
-                            star: starVal // ★星の数を保存
+                            star: starVal
                         };
                     }).filter(q => q.text !== "" || q.questionText !== ""); 
                     
@@ -119,7 +205,40 @@ async function loadQuestions() {
     }
 }
 
-// 2. モード選択画面の生成
+function searchQuestions() {
+    const keyword = document.getElementById("search-input").value.trim().toLowerCase();
+    if (!keyword) {
+        alert("キーワードを入力してください。");
+        return;
+    }
+    
+    const results = allQuestions.filter(q => 
+        q.title.toLowerCase().includes(keyword) || 
+        q.text.toLowerCase().includes(keyword) || 
+        q.questionText.toLowerCase().includes(keyword) || 
+        q.answerText.toLowerCase().includes(keyword)
+    );
+
+    if (results.length === 0) {
+        alert(`「${keyword}」を含む問題は見つかりませんでした。`);
+        return;
+    }
+
+    finalQuestions = results;
+    currentIndex = 0;
+    correctCount = 0;
+    isReviewMode = false;
+    calculateTotalScore(); 
+
+    document.getElementById("start-screen").style.display = "none";
+    document.getElementById("category-screen").style.display = "none";
+    document.getElementById("quiz-screen").style.display = "block";
+    document.getElementById("current-category-badge").textContent = `検索: ${keyword} (${results.length}問)`;
+
+    startTimer(); 
+    displayQuestion();
+}
+
 function setupTypeScreen() {
     const types = [...new Set(allQuestions.map(q => q.type))];
     const buttonsContainer = document.getElementById("type-buttons");
@@ -128,16 +247,8 @@ function setupTypeScreen() {
 
     types.forEach(type => {
         const count = allQuestions.filter(q => q.type === type).length;
-        
-        let icon = "📝";
-        let desc = "問題を解いて実力をチェックします。";
-        if (type.includes("穴埋め")) {
-            icon = "🧩";
-            desc = "空欄を埋めて、試験で頻出のキーワードを正確に暗記します。";
-        } else if (type.includes("記述") || type.includes("一問一答")) {
-            icon = "✍️";
-            desc = "表示される問題に対して解答を作成し、自己採点を行います。";
-        }
+        let icon = type.includes("穴埋め") ? "🧩" : "✍️";
+        let desc = type.includes("穴埋め") ? "空欄を埋めて、試験で頻出のキーワードを正確に暗記します。" : "表示される問題に対して解答を作成し、自己採点を行います。";
 
         const card = document.createElement("div");
         card.className = "type-card";
@@ -163,7 +274,6 @@ function setupTypeScreen() {
     randCard.onclick = () => startRandom10(false); 
     buttonsContainer.appendChild(randCard);
 
-    // ★追加：頻出・重要特化ランダムテスト
     const highStarRandCard = document.createElement("div");
     highStarRandCard.className = "type-card";
     highStarRandCard.style.borderColor = "#f43f5e"; 
@@ -176,11 +286,47 @@ function setupTypeScreen() {
     highStarRandCard.onclick = () => startRandom10(true); 
     buttonsContainer.appendChild(highStarRandCard);
 
+    let wrongIds = JSON.parse(localStorage.getItem('riron_wrong_ids')) || [];
+    const reviewCard = document.createElement("div");
+    reviewCard.className = "type-card";
+    reviewCard.style.borderColor = "#10b981"; 
+    reviewCard.innerHTML = `
+        <div class="type-icon" style="background:#d1fae5;">🏥</div>
+        <h3 class="type-title">弱点克服（復習）</h3>
+        <p class="type-desc">過去に間違えた問題や、解答を見た問題だけを集中的にやり直します。</p>
+        <div class="type-count">要復習: ${wrongIds.length}問</div>
+    `;
+    reviewCard.onclick = () => startReviewMode(); 
+    buttonsContainer.appendChild(reviewCard);
+
     document.getElementById("loading-message").style.display = "none";
     document.getElementById("type-container").style.display = "block";
 }
 
-// 全範囲ランダム10問（引数で★4以上のみを制御）
+function startReviewMode() {
+    let wrongIds = JSON.parse(localStorage.getItem('riron_wrong_ids')) || [];
+    if (wrongIds.length === 0) {
+        alert("現在、復習が必要な問題はありません！素晴らしいです！");
+        return;
+    }
+
+    finalQuestions = allQuestions.filter(q => wrongIds.includes(q.id));
+    finalQuestions = shuffleArray(finalQuestions);
+    
+    currentIndex = 0;
+    correctCount = 0; 
+    isReviewMode = true;
+    calculateTotalScore(); 
+
+    document.getElementById("start-screen").style.display = "none";
+    document.getElementById("category-screen").style.display = "none";
+    document.getElementById("quiz-screen").style.display = "block";
+    document.getElementById("current-category-badge").textContent = "🏥 弱点克服モード";
+
+    startTimer(); 
+    displayQuestion();
+}
+
 function startRandom10(isHighStarOnly) {
     let pool = allQuestions;
     if (isHighStarOnly) {
@@ -192,10 +338,10 @@ function startRandom10(isHighStarOnly) {
         return;
     }
 
-    // ★単なるシャッフルではなく、重み付けランダムを使用
     finalQuestions = pickWeightedRandom(pool, 10);
     currentIndex = 0;
     correctCount = 0; 
+    isReviewMode = false;
     calculateTotalScore(); 
 
     document.getElementById("start-screen").style.display = "none";
@@ -203,10 +349,10 @@ function startRandom10(isHighStarOnly) {
     document.getElementById("quiz-screen").style.display = "block";
     document.getElementById("current-category-badge").textContent = isHighStarOnly ? "頻出・重要(★4以上)" : "総合テスト(全範囲)";
 
+    startTimer(); 
     displayQuestion();
 }
 
-// 3. カテゴリー選択画面の生成
 function selectType(selectedType) {
     currentType = selectedType;
     typeFilteredQuestions = allQuestions.filter(q => q.type === currentType);
@@ -247,21 +393,22 @@ function selectType(selectedType) {
 function backToTypeSelect() {
     document.getElementById("category-screen").style.display = "none";
     document.getElementById("start-screen").style.display = "block";
+    setupTypeScreen();
 }
 
 function backToCategorySelect() {
+    stopTimer(); 
     document.getElementById("quiz-screen").style.display = "none";
     document.getElementById("result-screen").style.display = "none";
     document.getElementById("start-screen").style.display = "block"; 
+    setupTypeScreen();
 }
 
 window.onload = loadQuestions;
 
-// 4. クイズ開始
 function startCategory(selectedCategory, isRandom5) {
     let filtered = typeFilteredQuestions.filter(q => q.category === selectedCategory);
     
-    // ★追加：重要度★4以上チェックボックスの判定
     const starCheckbox = document.getElementById("high-star-checkbox");
     const isHighStarOnly = starCheckbox ? starCheckbox.checked : false;
 
@@ -275,13 +422,13 @@ function startCategory(selectedCategory, isRandom5) {
     }
     
     if (isRandom5) {
-        // 重み付けランダムで5問抽出
         filtered = pickWeightedRandom(filtered, 5);
     }
     
     finalQuestions = filtered;
     currentIndex = 0;
     correctCount = 0; 
+    isReviewMode = false;
     calculateTotalScore(); 
 
     let badgeText = selectedCategory;
@@ -292,17 +439,16 @@ function startCategory(selectedCategory, isRandom5) {
     document.getElementById("quiz-screen").style.display = "block";
     document.getElementById("current-category-badge").textContent = badgeText;
 
+    startTimer(); 
     displayQuestion();
 }
 
-// 5. 問題の表示
 function displayQuestion() {
     const currentQ = finalQuestions[currentIndex];
     
     document.getElementById("question-title").textContent = currentQ.title;
     document.getElementById("progress-text").textContent = `${currentIndex + 1} / ${finalQuestions.length} 問目`;
     
-    // ★追加：重要度を★マークで表示
     const starText = "★".repeat(currentQ.star) + "☆".repeat(5 - currentQ.star);
     document.getElementById("question-star-display").textContent = starText;
     
@@ -336,6 +482,11 @@ function displayQuestion() {
         document.getElementById("self-grade-action").style.display = "none";
         document.getElementById("self-grade-area").style.display = "none";
 
+        setTimeout(() => {
+            const firstInput = document.getElementById("input-1");
+            if(firstInput) firstInput.focus();
+        }, 100);
+
     } else {
         document.getElementById("question-text").innerHTML = currentQ.questionText;
         document.getElementById("answer-text").innerHTML = currentQ.answerText;
@@ -358,7 +509,6 @@ function displayQuestion() {
     }
 }
 
-// 6-A. 穴埋めモードの処理
 function checkFillInAnswers() {
     const currentQ = finalQuestions[currentIndex];
     
@@ -385,14 +535,17 @@ function checkFillInAnswers() {
     }
 
     correctCount += correctInThisQuestion;
+    addTodayCount(); 
 
     const resultMessage = document.getElementById("result-message");
     if (correctInThisQuestion === totalInThisQuestion) {
         resultMessage.textContent = "🎉 パーフェクト！全問正解！";
         resultMessage.style.color = "var(--correct)";
+        removeWrongId(currentQ.id); 
     } else {
         resultMessage.textContent = `惜しい！ ${totalInThisQuestion}箇所中、${correctInThisQuestion}箇所正解です。`;
         resultMessage.style.color = "var(--incorrect)";
+        saveWrongId(currentQ.id); 
     }
 
     document.getElementById("check-btn").disabled = true;
@@ -419,15 +572,16 @@ function showFillInAnswer() {
 
     if (!document.getElementById("check-btn").disabled) {
         const resultMessage = document.getElementById("result-message");
-        resultMessage.textContent = "解答を表示しました。（この問題は0点扱いになります）";
+        resultMessage.textContent = "解答を表示しました。（この問題は要復習に追加されます）";
         resultMessage.style.color = "var(--text-muted)";
         document.getElementById("check-btn").disabled = true;
+        saveWrongId(currentQ.id); 
+        addTodayCount();
     }
     
     document.getElementById("show-fill-in-answer-btn").disabled = true;
 }
 
-// 6-B. 記述（一問一答）モードの処理
 function showAnswer() {
     document.getElementById("self-grade-action").style.display = "none";
     document.getElementById("self-grade-area").style.display = "block";
@@ -437,13 +591,18 @@ function showAnswer() {
 }
 
 function gradeAnswer(isCorrect) {
+    const currentQ = finalQuestions[currentIndex];
+    addTodayCount(); 
+
     if (isCorrect) {
         correctCount++;
+        removeWrongId(currentQ.id); 
+    } else {
+        saveWrongId(currentQ.id); 
     }
     nextQuestion(); 
 }
 
-// 7. 画面遷移
 function nextQuestion() {
     if (currentIndex < finalQuestions.length - 1) {
         currentIndex++;
@@ -461,6 +620,8 @@ function prevQuestion() {
 }
 
 function showResultScreen() {
+    stopTimer(); 
+    
     document.getElementById("quiz-screen").style.display = "none";
     document.getElementById("result-screen").style.display = "block";
     
@@ -471,7 +632,26 @@ function showResultScreen() {
         accuracy = Math.round((correctCount / totalPossibleScore) * 100);
     }
     document.getElementById("accuracy-display").textContent = `正答率: ${accuracy}%`;
+    document.getElementById("time-result-display").textContent = `⏱ クリアタイム: ${formatTime(elapsedSeconds)}`;
     
     document.getElementById("progress-bar").style.width = "100%";
 }
-// ※プログラムの最終行です。この下には何も書かないでください。
+
+// ★修正：公式Xアカウント(@rironuniversity)をメンションに追加
+function shareOnX() {
+    const accuracy = totalPossibleScore > 0 ? Math.round((correctCount / totalPossibleScore) * 100) : 0;
+    const streak = document.getElementById('streak-days').textContent;
+    const timeStr = formatTime(elapsedSeconds);
+    const categoryName = document.getElementById("current-category-badge").textContent;
+
+    // ▼ Vercelで公開したら、ここのURLをご自身のものに書き換えてください（例：https://riron-daigaku.vercel.app） ▼
+    const appUrl = "https://rironuniversity.vercel.app"; 
+
+    // 本文テキスト
+    const text = `「${categoryName}」をクリア！\n💯 スコア: ${correctCount}/${totalPossibleScore}点 (${accuracy}%)\n⏱ タイム: ${timeStr}\n🔥 連続学習: ${streak}日目\n\n#財務諸表論 #税理士試験 #理論大学`;
+    
+    // ★ &via=rironuniversity をつけることで、自動的に「@rironuniversityさんから」と追加されます
+    const shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(appUrl)}&via=rironuniversity`;
+    
+    window.open(shareUrl, '_blank');
+}
